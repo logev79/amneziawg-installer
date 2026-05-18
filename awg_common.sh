@@ -84,10 +84,22 @@ get_server_public_ip() {
         ip=$(curl -4 -sf --max-time 5 "$svc" 2>/dev/null | tr -d '[:space:]')
         if [[ -n "$ip" && "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             _CACHED_PUBLIC_IP="$ip"
+            # Observability: write trace to LOG_FILE directly. Never to stdout
+            # (the function's stdout IS the IP; any extra bytes corrupt the
+            # caller's $(get_server_public_ip) capture and the generated
+            # client Endpoint line).
+            if [[ -n "${LOG_FILE:-}" && -w "$(dirname "${LOG_FILE}")" ]]; then
+                printf '[%s] DEBUG: public IP detected: %s (via %s)\n' \
+                    "$(date +'%F %T')" "$ip" "$svc" >>"$LOG_FILE" 2>/dev/null || true
+            fi
             echo "$ip"
             return 0
         fi
     done
+    if [[ -n "${LOG_FILE:-}" && -w "$(dirname "${LOG_FILE}")" ]]; then
+        printf '[%s] DEBUG: public IP detection failed (all 6 services unreachable or invalid)\n' \
+            "$(date +'%F %T')" >>"$LOG_FILE" 2>/dev/null || true
+    fi
     echo ""
     return 1
 }
