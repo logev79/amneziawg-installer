@@ -8,15 +8,15 @@ fi
 # ==============================================================================
 # Скрипт для установки и настройки AmneziaWG 2.0 на Ubuntu/Debian серверах
 # Автор: @bivlked
-# Версия: 5.18.1
-# Дата: 2026-06-27
+# Версия: 5.18.2
+# Дата: 2026-07-01
 # Репозиторий: https://github.com/bivlked/amneziawg-installer
 # ==============================================================================
 
 # --- Безопасный режим и Константы ---
 set -o pipefail
 
-SCRIPT_VERSION="5.18.1"
+SCRIPT_VERSION="5.18.2"
 AWG_DIR="/root/awg"
 CONFIG_FILE="$AWG_DIR/awgsetup_cfg.init"
 STATE_FILE="$AWG_DIR/setup_state"
@@ -33,8 +33,8 @@ MANAGE_SCRIPT_PATH="$AWG_DIR/manage_amneziawg.sh"
 # Проверяются в step5_download_scripts() после curl.
 # Если AWG_BRANCH переопределён (не v$SCRIPT_VERSION), проверка пропускается.
 # Формат: sha256sum output (hex, 64 chars).
-COMMON_SCRIPT_SHA256="140bbb323ec490ba5b7f49b81ed3d9a27195d123ac3a9ad761994b2b050419f2"
-MANAGE_SCRIPT_SHA256="4c8cdec3b7a5a32fb9873f2d1ae64d8b56edd1c53165c85921ec861ba01de632"
+COMMON_SCRIPT_SHA256="b7f87a57fbb85eed6d69be38145bdcd1ffccebb0eb5f79224d4f894fcce0fd67"
+MANAGE_SCRIPT_SHA256="692d166ff6f99d9edbb70935733a110242fff5175f4bf48aea697df757671622"
 
 # Флаги CLI
 UNINSTALL=0; HELP=0; HELP_EXIT_RC=0; DIAGNOSTIC=0; VERBOSE=0; NO_COLOR=0; AUTO_YES=0; NO_TWEAKS=0
@@ -2150,6 +2150,14 @@ step1_update_and_optimize() {
     update_state 1
     log "### ШАГ 1: Обновление, очистка и оптимизация системы ###"
 
+    # Устойчивость к dpkg-lock на первой загрузке сервера: unattended-upgrades
+    # и apt-daily нередко держат блокировку несколько минут (issue #150 - тогда
+    # apt full-upgrade падал сразу). DPkg::Lock::Timeout заставляет apt дождаться
+    # освобождения блокировки, а не завершаться с ошибкой.
+    mkdir -p /etc/apt/apt.conf.d
+    printf 'DPkg::Lock::Timeout "300";\n' > /etc/apt/apt.conf.d/99-amneziawg-lock-timeout \
+        || log_warn "Не удалось записать apt lock-timeout (митигация issue #150)."
+
     # Очистка ненужных компонентов (ДО обновления для экономии трафика/времени)
     if [[ "$NO_TWEAKS" -eq 0 ]]; then
         cleanup_system
@@ -2170,7 +2178,16 @@ step1_update_and_optimize() {
     fi
 
     log "Обновление системы..."
-    DEBIAN_FRONTEND=noninteractive apt full-upgrade -y || die "Ошибка apt full-upgrade."
+    if ! DEBIAN_FRONTEND=noninteractive apt full-upgrade -y; then
+        _lock_holder="$(fuser /var/lib/dpkg/lock-frontend 2>/dev/null | tr -s ' ' || true)"
+        if [[ -n "$_lock_holder" ]]; then
+            log_warn "dpkg-lock занят процессами:${_lock_holder} (обычно first-boot unattended-upgrades)."
+        fi
+        log_warn "apt full-upgrade не прошёл, чиню dpkg и повторяю..."
+        DEBIAN_FRONTEND=noninteractive dpkg --configure -a || true
+        DEBIAN_FRONTEND=noninteractive apt full-upgrade -y \
+            || die "Ошибка apt full-upgrade. Похоже, другой процесс apt/unattended-upgrades держит dpkg-lock. Дождитесь его завершения (проверить: fuser /var/lib/dpkg/lock-frontend) либо выполните: systemctl stop unattended-upgrades; dpkg --configure -a - и запустите скрипт снова."
+    fi
     log "Система обновлена."
 
     install_packages curl wget gpg sudo ethtool
