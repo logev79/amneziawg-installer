@@ -33,8 +33,8 @@ MANAGE_SCRIPT_PATH="$AWG_DIR/manage_amneziawg.sh"
 # Verified in step5_download_scripts() after curl.
 # Verification is skipped when AWG_BRANCH is overridden (test branch).
 # Format: sha256sum output (hex, 64 chars).
-COMMON_SCRIPT_SHA256="b7cfe982573a811a30581c51223227b772d46c2bf79d6affcfb51db6fc612e76"
-MANAGE_SCRIPT_SHA256="6f0d76b072c7fde07907769b338e8852d047d0416649dbd34c4244c0770646e2"
+COMMON_SCRIPT_SHA256="5db4aa28fa7738444382434d6697a243ae8c3b8aa15a117453dbc0adab6d50ec"
+MANAGE_SCRIPT_SHA256="7cd812819a508538cc0451586cfd6f1c7ee870b523633762b62b5bc7d1cc5654"
 
 # CLI flags
 UNINSTALL=0; HELP=0; HELP_EXIT_RC=0; DIAGNOSTIC=0; VERBOSE=0; NO_COLOR=0; AUTO_YES=0; NO_TWEAKS=0; NO_CPS=0
@@ -654,7 +654,7 @@ safe_load_config() {
                 DISABLE_IPV6|ALLOWED_IPS_MODE|ALLOWED_IPS|AWG_ENDPOINT|AWG_MTU|\
                 AWG_Jc|AWG_Jmin|AWG_Jmax|AWG_S1|AWG_S2|AWG_S3|AWG_S4|\
                 AWG_H1|AWG_H2|AWG_H3|AWG_H4|AWG_I1|AWG_I2|AWG_I3|AWG_I4|AWG_I5|AWG_PRESET|NO_TWEAKS|NO_CPS|\
-                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6)
+                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6|PREV_AWG_PORT)
                     export "$key=$value"
                     ;;
             esac
@@ -1527,6 +1527,26 @@ setup_improved_firewall() {
     ssh_ports=$(detect_ssh_ports)
     log "SSH port(s) for the UFW rule: ${ssh_ports}"
 
+    # Port change on reinstall: delete the old port's rule before adding the
+    # new one, otherwise the old UDP port stays open forever - the only other
+    # ufw delete lives in uninstall and reads the already rewritten config
+    # (Issue #175). SSH limit rules are deliberately left alone: auto-removing
+    # an SSH rule on a misdetected port would cut off access to the server.
+    if [[ -n "${PREV_AWG_PORT:-}" && "$PREV_AWG_PORT" =~ ^[0-9]+$ \
+          && "$PREV_AWG_PORT" != "$AWG_PORT" ]]; then
+        if ufw delete allow "${PREV_AWG_PORT}/udp" >/dev/null 2>&1; then
+            log "UFW: old port rule ${PREV_AWG_PORT}/udp deleted (port changed to ${AWG_PORT})."
+            # Success - remove the pending delete from awgsetup_cfg.init. On
+            # failure the key stays: the next run retries instead of losing
+            # it for good (PR #176).
+            sed -i '/^export PREV_AWG_PORT=/d' "$CONFIG_FILE" 2>/dev/null \
+                || log_warn "Failed to remove PREV_AWG_PORT from $CONFIG_FILE."
+            PREV_AWG_PORT=""
+        else
+            log_warn "UFW: failed to delete the old port rule ${PREV_AWG_PORT}/udp (the rule may not exist). Will retry on the next installer run."
+        fi
+    fi
+
     local ufw_errors=0
     if ufw status 2>/dev/null | grep -q inactive; then
         log "UFW is inactive. Configuring..."
@@ -2045,8 +2065,26 @@ initialize_setup() {
         log "Configuration file $CONFIG_FILE not found."
     fi
 
+    # The old port from awgsetup_cfg.init: step 4 needs it to delete the stale
+    # UFW rule on a port change (Issue #175). Captured BEFORE the CLI override,
+    # otherwise the old value is lost for good - uninstall reads the already
+    # rewritten config and never learns the old port. PREV_AWG_PORT may already
+    # be loaded from awgsetup_cfg.init via safe_load_config - that is a pending
+    # delete from a previous run: step 1 ends in request_reboot, only a value
+    # written to disk survives until step 4 (PR #176).
+    PREV_AWG_PORT="${PREV_AWG_PORT:-}"
+    _cfg_awg_port=""
+    if [[ "$config_exists" -eq 1 ]]; then _cfg_awg_port="$AWG_PORT"; fi
+
     # CLI override
     AWG_PORT=${CLI_PORT:-$AWG_PORT}
+    # The port changed in this run - the previous value becomes a pending
+    # delete. If the port was changed back (matches the pending value), the
+    # delete is cancelled: the rule is needed again.
+    if [[ -n "$_cfg_awg_port" && "$_cfg_awg_port" != "$AWG_PORT" ]]; then
+        PREV_AWG_PORT="$_cfg_awg_port"
+    fi
+    if [[ "$PREV_AWG_PORT" == "$AWG_PORT" ]]; then PREV_AWG_PORT=""; fi
     AWG_TUNNEL_SUBNET=${CLI_SUBNET:-$AWG_TUNNEL_SUBNET}
     if [[ "$CLI_DISABLE_IPV6" != "default" ]]; then DISABLE_IPV6=$CLI_DISABLE_IPV6; fi
     if [[ "$CLI_ROUTING_MODE" != "default" ]]; then
@@ -2223,6 +2261,14 @@ export ALLOW_IPV6_TUNNEL=${ALLOW_IPV6_TUNNEL:-0}
 export IPV6_SUBNET='${IPV6_SUBNET}'
 export SERVER_HAS_NATIVE_IPV6=${SERVER_HAS_NATIVE_IPV6:-0}
 EOF
+    # The pending delete of the old port's UFW rule must survive a reboot:
+    # step 4 runs in a different process after 1-2 reboots, a process variable
+    # does not live that long (PR #176). setup_improved_firewall removes the
+    # key after a successful ufw delete.
+    if [[ "$PREV_AWG_PORT" =~ ^[0-9]+$ ]]; then
+        echo "export PREV_AWG_PORT=${PREV_AWG_PORT}" >> "$temp_conf" \
+            || die "Error writing PREV_AWG_PORT to $temp_conf"
+    fi
     if ! mv "$temp_conf" "$CONFIG_FILE"; then
         rm -f "$temp_conf"
         die "Error saving $CONFIG_FILE"
@@ -2242,6 +2288,13 @@ EOF
         log_warn "Routing mode changed. Existing client configs keep their old AllowedIPs."
         log_warn "Apply the new mode to all clients: sudo bash $MANAGE_SCRIPT_PATH regen --reset-routes"
     fi
+    # Port change: step 6 skips clients that already exist, their Endpoint
+    # keeps the old port and they silently stop connecting. Hint the explicit
+    # reissue - mirrors the routing-mode change warning (#170).
+    if [[ "$config_exists" -eq 1 && -n "$PREV_AWG_PORT" ]]; then
+        log_warn "Port changed (${PREV_AWG_PORT} -> ${AWG_PORT}). Existing client configs keep the old port in Endpoint and will lose connectivity."
+        log_warn "Reissue all clients: sudo bash $MANAGE_SCRIPT_PATH regen"
+    fi
 
     # Loading state
     if [[ -f "$STATE_FILE" ]]; then
@@ -2257,6 +2310,22 @@ EOF
         current_step=1
         log "Starting from step 1."
         update_state 1
+    fi
+
+    # Stale state (an interrupted step 7 leaves setup_state=7/99) + CLI flags
+    # affecting the firewall/configs: without the rollback the loop would skip
+    # steps 4-6, the new values would live only in awgsetup_cfg.init while
+    # awg0.conf, client configs and UFW rules silently kept the old ones
+    # (Issue #175). Roll back to step 4: firewall (port) + config regen (step 6).
+    if (( current_step > 4 )) && { [[ -n "$CLI_PORT" ]] || [[ -n "$CLI_SUBNET" ]] \
+        || [[ -n "$CLI_SSH_PORT" ]] || [[ "$CLI_ROUTING_MODE" != "default" ]] \
+        || [[ -n "$CLI_ENDPOINT" ]] || [[ "$CLI_DISABLE_IPV6" != "default" ]] \
+        || [[ "${CLI_ALLOW_IPV6_TUNNEL:-0}" -eq 1 ]] || [[ -n "${CLI_PRESET:-}" ]] \
+        || [[ -n "${CLI_JC:-}" ]] || [[ -n "${CLI_JMIN:-}" ]] || [[ -n "${CLI_JMAX:-}" ]] \
+        || [[ "${CLI_NO_CPS:-0}" -eq 1 ]]; }; then
+        log_warn "Unfinished install (step $current_step) + configuration CLI flags: rolling back to step 4 so the firewall and configs are regenerated with the new values."
+        current_step=4
+        update_state 4
     fi
     log "Step 0 completed."
 }

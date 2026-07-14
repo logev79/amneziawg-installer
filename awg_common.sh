@@ -592,6 +592,10 @@ _ensure_awg_quick_running() {
 #   0 — модуль успешно загружен (и в "full" режиме awg-quick активен).
 #   1 — финальный modprobe провалился, либо невалидный режим
 #       (с печатью 4-шагового manual recovery).
+#   2 - только "full": модуль в порядке, но awg-quick@awg0 не стартовал
+#       (сервис-проблема: битый конфиг, занятый порт и т.п.). Раньше это
+#       гасилось в log_warn + return 0, и repair-module рапортовал
+#       "сервис активен" при лежащем сервисе (Issue #175).
 ensure_amneziawg_kernel_module() {
     local mode="${1:-full}"
     case "$mode" in
@@ -607,8 +611,10 @@ ensure_amneziawg_kernel_module() {
     # Fast-path: модуль уже загружен.
     if lsmod 2>/dev/null | awk '{print $1}' | grep -qx 'amneziawg'; then
         if [[ "$mode" == "full" ]]; then
-            _ensure_awg_quick_running awg0 || \
+            _ensure_awg_quick_running awg0 || {
                 log_warn "Модуль активен, но awg-quick@awg0 не стартовал (модуль OK, это сервис-проблема)."
+                return 2
+            }
         fi
         return 0
     fi
@@ -619,8 +625,10 @@ ensure_amneziawg_kernel_module() {
            lsmod 2>/dev/null | awk '{print $1}' | grep -qx 'amneziawg'; then
             log "amneziawg-модуль найден на диске и успешно загружен."
             if [[ "$mode" == "full" ]]; then
-                _ensure_awg_quick_running awg0 || \
+                _ensure_awg_quick_running awg0 || {
                     log_warn "Модуль загружен, но awg-quick@awg0 не стартовал (модуль OK, это сервис-проблема)."
+                    return 2
+                }
             fi
             return 0
         fi
@@ -688,8 +696,10 @@ ensure_amneziawg_kernel_module() {
 
     log "Модуль amneziawg успешно загружен для ядра ${kernel_ver}."
     if [[ "$mode" == "full" ]]; then
-        _ensure_awg_quick_running awg0 || \
+        _ensure_awg_quick_running awg0 || {
             log_warn "Модуль загружен, но awg-quick@awg0 не стартовал (модуль OK, это сервис-проблема)."
+            return 2
+        }
     fi
     return 0
 }
@@ -728,8 +738,8 @@ safe_load_config() {
                 OS_ID|OS_VERSION|OS_CODENAME|AWG_PORT|AWG_TUNNEL_SUBNET|\
                 DISABLE_IPV6|ALLOWED_IPS_MODE|ALLOWED_IPS|AWG_ENDPOINT|AWG_MTU|\
                 AWG_Jc|AWG_Jmin|AWG_Jmax|AWG_S1|AWG_S2|AWG_S3|AWG_S4|\
-                AWG_H1|AWG_H2|AWG_H3|AWG_H4|AWG_I1|AWG_I2|AWG_I3|AWG_I4|AWG_I5|AWG_PRESET|NO_TWEAKS|\
-                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6)
+                AWG_H1|AWG_H2|AWG_H3|AWG_H4|AWG_I1|AWG_I2|AWG_I3|AWG_I4|AWG_I5|AWG_PRESET|NO_TWEAKS|NO_CPS|\
+                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6|PREV_AWG_PORT)
                     export "$key=$value"
                     ;;
             esac
