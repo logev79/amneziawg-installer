@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [5.19.2] - 2026-07-15
 
-**v5.19.2** - command-surface audit (contributed by @ekuraev): an interrupted install rerun with CLI flags no longer skips regeneration, changing the port removes the stale UFW rule, and `manage repair-module` / `manage add` no longer report success where there is none.
+**v5.19.2** - stale UFW rule cleanup on a port change (contributed by @ekuraev), config regeneration after an interrupted install, and an honest repair-module exit code.
 
 ### Fixed
 
