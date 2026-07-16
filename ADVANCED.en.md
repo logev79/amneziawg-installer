@@ -467,6 +467,7 @@ Options:
   --route-custom=NETS   Mode: Only specified networks
   --isolation=on|off    Isolate clients from each other (default on)
   --endpoint=ADDR       External server endpoint: FQDN, IPv4 or [IPv6] (NAT)
+  --server-name=NAME    Server name shown in the Amnezia app on vpn:// import (default 'AWG Server')
   --preset=TYPE         Obfuscation parameter preset: default, mobile
                         mobile: Jc=3, narrow Jmax — for mobile carriers (Tele2, Yota, Megafon)
   --jc=N                Set Jc manually (1-128, overrides preset)

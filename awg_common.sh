@@ -739,7 +739,7 @@ safe_load_config() {
                 DISABLE_IPV6|ALLOWED_IPS_MODE|ALLOWED_IPS|AWG_ENDPOINT|AWG_MTU|\
                 AWG_Jc|AWG_Jmin|AWG_Jmax|AWG_S1|AWG_S2|AWG_S3|AWG_S4|\
                 AWG_H1|AWG_H2|AWG_H3|AWG_H4|AWG_I1|AWG_I2|AWG_I3|AWG_I4|AWG_I5|AWG_PRESET|NO_TWEAKS|NO_CPS|\
-                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6|PREV_AWG_PORT|CLIENT_ISOLATION|CLIENT_ISOLATION_NET)
+                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6|PREV_AWG_PORT|CLIENT_ISOLATION|CLIENT_ISOLATION_NET|AWG_SERVER_NAME)
                     export "$key=$value"
                     ;;
             esac
@@ -1858,7 +1858,7 @@ generate_vpn_uri() {
       perl -MCompress::Zlib -MMIME::Base64 -e '
         my ($conf_path, $h1,$h2,$h3,$h4, $jc,$jmin,$jmax,
             $s1,$s2,$s3,$s4, $i1,$i2,$i3,$i4,$i5, $port, $ep, $cip, $cipv6, $aips,
-            $mtu, $keepalive, $dns1, $dns2) = @ARGV;
+            $mtu, $keepalive, $dns1, $dns2, $srvname) = @ARGV;
         my $cpk = $ENV{AWG_URI_CPK} // "";
         my $psk = $ENV{AWG_URI_PSK} // "";
         my $spk = $ENV{AWG_URI_SPK} // "";
@@ -1907,7 +1907,8 @@ generate_vpn_uri() {
         $outer .= qq("port":"$port","protocol_version":"2",);
         $outer .= qq("transport_proto":"udp"\},"container":"amnezia-awg"\}],);
         $outer .= qq("defaultContainer":"amnezia-awg",);
-        $outer .= qq("description":"AWG Server",);
+        my $esrv = je($srvname);
+        $outer .= qq("description":"$esrv",);
         my $ed1 = je($dns1); my $ed2 = je($dns2);
         $outer .= qq("dns1":"$ed1","dns2":"$ed2",);
         $outer .= qq("hostName":"$ep"});
@@ -1924,7 +1925,7 @@ generate_vpn_uri() {
         "$AWG_S1" "$AWG_S2" "$AWG_S3" "$AWG_S4" \
         "$AWG_I1" "${AWG_I2:-}" "${AWG_I3:-}" "${AWG_I4:-}" "${AWG_I5:-}" "$AWG_PORT" "$endpoint" \
         "$client_ip" "$client_ipv6" "$allowed_ips" \
-        "$mtu" "$keepalive" "$dns1" "$dns2" 2>"$perl_err"
+        "$mtu" "$keepalive" "$dns1" "$dns2" "${AWG_SERVER_NAME:-AWG Server}" 2>"$perl_err"
     )
 
     if [[ -z "$vpn_uri" ]]; then

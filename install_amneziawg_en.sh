@@ -44,6 +44,7 @@ CLI_PORT=""; CLI_SUBNET=""; CLI_DISABLE_IPV6="default"; CLI_SSH_PORT=""
 CLI_ROUTING_MODE="default"; CLI_CUSTOM_ROUTES=""; CLI_ENDPOINT=""; CLI_NO_TWEAKS=0; CLI_NO_CPS=0
 CLI_ALLOW_IPV6_TUNNEL=0
 CLI_ISOLATION="default"
+CLI_SERVER_NAME=""
 
 # --- Auto-cleanup of temporary files ---
 _install_temp_files=()
@@ -88,6 +89,7 @@ while [[ $# -gt 0 ]]; do
         --route-custom=*) CLI_ROUTING_MODE=3; CLI_CUSTOM_ROUTES="${1#*=}" ;;
         --isolation=*)   CLI_ISOLATION="${1#*=}" ;;
         --endpoint=*)    CLI_ENDPOINT="${1#*=}" ;;
+        --server-name=*) CLI_SERVER_NAME="${1#*=}" ;;
         --yes|-y)        AUTO_YES=1 ;;
         --no-tweaks)     NO_TWEAKS=1; CLI_NO_TWEAKS=1 ;;
         --no-cps)        NO_CPS=1; CLI_NO_CPS=1 ;;
@@ -295,6 +297,8 @@ Options:
   --isolation=on|off    Isolate VPN clients from each other (default on).
                         off: the tunnel subnet is added to client AllowedIPs
   --endpoint=ADDR       External server endpoint: FQDN, IPv4 or [IPv6] (NAT)
+  --server-name=NAME    Server name shown in the Amnezia app on vpn:// import
+                        (default 'AWG Server'; up to 64 chars, no quotes)
   -y, --yes             Auto-confirm (reboots, UFW, etc.)
   -f, --force           Force reinstall on top of an already-running AmneziaWG
                         (by default a run on a configured server aborts;
@@ -658,7 +662,7 @@ safe_load_config() {
                 DISABLE_IPV6|ALLOWED_IPS_MODE|ALLOWED_IPS|AWG_ENDPOINT|AWG_MTU|\
                 AWG_Jc|AWG_Jmin|AWG_Jmax|AWG_S1|AWG_S2|AWG_S3|AWG_S4|\
                 AWG_H1|AWG_H2|AWG_H3|AWG_H4|AWG_I1|AWG_I2|AWG_I3|AWG_I4|AWG_I5|AWG_PRESET|NO_TWEAKS|NO_CPS|\
-                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6|PREV_AWG_PORT|CLIENT_ISOLATION|CLIENT_ISOLATION_NET)
+                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6|PREV_AWG_PORT|CLIENT_ISOLATION|CLIENT_ISOLATION_NET|AWG_SERVER_NAME)
                     export "$key=$value"
                     ;;
             esac
@@ -855,6 +859,48 @@ _apply_isolation_to_allowed_ips() {
         CLIENT_ISOLATION_NET=""
     fi
     export CLIENT_ISOLATION_NET
+}
+
+# Server-name validation for the vpn:// URI (D#180): the description field is
+# shown in the Amnezia app after import. The constraints follow from storage
+# in awgsetup_cfg.init (the '...' wrapper) and JSON embedding: no quotes or
+# backslash, no newlines or tabs, length 1-64.
+validate_server_name() {
+    local n="$1"
+    [[ -n "$n" ]] || return 1
+    (( ${#n} <= 64 )) || return 1
+    [[ "$n" == *"'"* || "$n" == *'"'* || "$n" == *'\'* ]] && return 1
+    [[ "$n" == *$'\n'* || "$n" == *$'\t'* || "$n" == *$'\r'* ]] && return 1
+    return 0
+}
+
+# Server name in the Amnezia app (D#180). Priority: CLI flag > saved config >
+# interactive question (first run only, no --yes) > 'AWG Server'. A config
+# value is re-validated: the file can be hand-edited, and the name goes into
+# the vpn:// URI JSON.
+configure_server_name() {
+    if [[ -n "$CLI_SERVER_NAME" ]]; then
+        validate_server_name "$CLI_SERVER_NAME" \
+            || die "Invalid --server-name: up to 64 chars, no quotes, backslash or newlines."
+        AWG_SERVER_NAME="$CLI_SERVER_NAME"
+        log "Server name from CLI: ${AWG_SERVER_NAME}"
+    elif [[ -n "${AWG_SERVER_NAME:-}" ]]; then
+        if ! validate_server_name "$AWG_SERVER_NAME"; then
+            log_warn "AWG_SERVER_NAME from $CONFIG_FILE is invalid, using 'AWG Server'."
+            AWG_SERVER_NAME="AWG Server"
+        fi
+    elif [[ "${config_exists:-0}" -eq 1 || "$AUTO_YES" -eq 1 ]]; then
+        AWG_SERVER_NAME="AWG Server"
+    else
+        local input_name
+        while true; do
+            read -rp "Server name in the Amnezia app [AWG Server]: " input_name < /dev/tty
+            if [[ -z "$input_name" ]]; then AWG_SERVER_NAME="AWG Server"; break; fi
+            if validate_server_name "$input_name"; then AWG_SERVER_NAME="$input_name"; break; fi
+            log_warn "Up to 64 chars, no quotes or backslash. Try again."
+        done
+    fi
+    export AWG_SERVER_NAME
 }
 
 # Subnet-change guard: [Peer] blocks are carried over verbatim on reinstall
@@ -2179,6 +2225,9 @@ initialize_setup() {
     # otherwise reach the AllowedIPs route removal (PR #179 review).
     CLIENT_ISOLATION_NET=""
 
+    # Hard reset before the config is loaded: the value must not come from env.
+    AWG_SERVER_NAME=""
+
     # Load config
     if [[ -f "$CONFIG_FILE" ]]; then
         log "Configuration file found $CONFIG_FILE. Loading settings..."
@@ -2234,6 +2283,11 @@ initialize_setup() {
     # --isolation=off transition would not warn about regen.
     _cfg_client_isolation=""
     if [[ "$config_exists" -eq 1 ]]; then _cfg_client_isolation="${CLIENT_ISOLATION:-1}"; fi
+
+    # Previous server name - for the change warning (D#180).
+    # A legacy config without the key = 'AWG Server' (the old hardcode).
+    _cfg_server_name=""
+    if [[ "$config_exists" -eq 1 ]]; then _cfg_server_name="${AWG_SERVER_NAME:-AWG Server}"; fi
 
     # CLI override
     AWG_PORT=${CLI_PORT:-$AWG_PORT}
@@ -2341,6 +2395,9 @@ initialize_setup() {
         die "Invalid ALLOWED_IPS: '$ALLOWED_IPS'. Expected a list x.x.x.x/y[,x.x.x.x/y]."
     fi
 
+    # Server name for the vpn:// URI (D#180): source selection + validation.
+    configure_server_name
+
     # Port check (skip if AWG service is already listening on this port)
     if ! systemctl is-active --quiet awg-quick@awg0 2>/dev/null; then
         check_port_availability "$AWG_PORT" || die "Port $AWG_PORT/udp is occupied."
@@ -2406,6 +2463,7 @@ export ALLOWED_IPS='${ALLOWED_IPS}'
 export CLIENT_ISOLATION=${CLIENT_ISOLATION:-1}
 export CLIENT_ISOLATION_NET='${CLIENT_ISOLATION_NET:-}'
 export AWG_ENDPOINT='${AWG_ENDPOINT}'
+export AWG_SERVER_NAME='${AWG_SERVER_NAME:-AWG Server}'
 export AWG_MTU=${AWG_MTU:-1280}
 # AWG 2.0 Parameters
 export AWG_Jc=${AWG_Jc}
@@ -2452,6 +2510,8 @@ EOF
     log "IPv6 disable: $DISABLE_IPV6"
     log "AllowedIPs mode: $ALLOWED_IPS_MODE"
     log "Client isolation: $( [[ "${CLIENT_ISOLATION:-1}" -eq 1 ]] && echo enabled || echo disabled )"
+
+    log "Server name: ${AWG_SERVER_NAME}"
     # Changing the routing mode is a client-config operation: new clients get
     # the new list, but for existing ones regen deliberately preserves
     # AllowedIPs (per-client modify customizations). Hint the explicit way to
@@ -2474,6 +2534,12 @@ EOF
     if [[ "$config_exists" -eq 1 && -n "$PREV_AWG_PORT" ]]; then
         log_warn "Port changed (${PREV_AWG_PORT} -> ${AWG_PORT}). Existing client configs keep the old port in Endpoint and will lose connectivity."
         log_warn "Reissue all clients: sudo bash $MANAGE_SCRIPT_PATH regen"
+    fi
+    # Server-name change (D#180): affects only the vpn:// URI; existing
+    # .vpnuri files keep the old name until reissued.
+    if [[ "$config_exists" -eq 1 && "$_cfg_server_name" != "$AWG_SERVER_NAME" ]]; then
+        log_warn "Server name changed ('${_cfg_server_name}' -> '${AWG_SERVER_NAME}'). Existing vpn:// links keep the old name."
+        log_warn "Reissue with the new name: sudo bash $MANAGE_SCRIPT_PATH regen"
     fi
 
     # Loading state

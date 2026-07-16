@@ -465,6 +465,7 @@ PersistentKeepalive = 33
   --route-custom=СЕТИ   Режим: Только указанные сети
   --isolation=on|off    Изоляция клиентов друг от друга (умолч. on)
   --endpoint=АДРЕС      Внешний endpoint сервера: FQDN, IPv4 или [IPv6] (для NAT)
+  --server-name=ИМЯ     Имя сервера в приложении Amnezia при импорте vpn:// (умолч. 'AWG Server')
   --preset=ТИП          Набор параметров обфускации: default, mobile
                         mobile: Jc=3, узкий Jmax — для мобильных операторов (Tele2, Yota, Мегафон)
   --jc=N                Задать Jc вручную (1-128, поверх preset)

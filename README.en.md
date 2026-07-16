@@ -341,6 +341,8 @@ This installation method handles interactive prompts and colored output correctl
     * **Routing mode:** Determines which traffic goes through the VPN. Default `2` (Amnezia List + DNS) - recommended for best compatibility and bypassing restrictions.
     * **Client isolation:** Whether to block traffic between clients inside the VPN. Enabled (`Y`) by default - clients cannot see each other; non-interactive: `--isolation=on|off`.
 
+    * **Server name:** The server shows up under this name in the Amnezia app on `vpn://` import. Default `AWG Server`; non-interactive: `--server-name=NAME`.
+
     AWG 2.0 parameters (Jc, S1-S4, H1-H4, I1) are generated **automatically** - no action required.
 
 6.  **Reboots:** **TWO** reboots are required. The script will ask for confirmation `[y/N]`. Type `y` and press Enter.

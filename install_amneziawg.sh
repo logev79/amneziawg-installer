@@ -44,6 +44,7 @@ CLI_PORT=""; CLI_SUBNET=""; CLI_DISABLE_IPV6="default"; CLI_SSH_PORT=""
 CLI_ROUTING_MODE="default"; CLI_CUSTOM_ROUTES=""; CLI_ENDPOINT=""; CLI_NO_TWEAKS=0; CLI_NO_CPS=0
 CLI_ALLOW_IPV6_TUNNEL=0
 CLI_ISOLATION="default"
+CLI_SERVER_NAME=""
 
 # --- Автоочистка временных файлов ---
 _install_temp_files=()
@@ -88,6 +89,7 @@ while [[ $# -gt 0 ]]; do
         --route-custom=*) CLI_ROUTING_MODE=3; CLI_CUSTOM_ROUTES="${1#*=}" ;;
         --isolation=*)   CLI_ISOLATION="${1#*=}" ;;
         --endpoint=*)    CLI_ENDPOINT="${1#*=}" ;;
+        --server-name=*) CLI_SERVER_NAME="${1#*=}" ;;
         --yes|-y)        AUTO_YES=1 ;;
         --no-tweaks)     NO_TWEAKS=1; CLI_NO_TWEAKS=1 ;;
         --no-cps)        NO_CPS=1; CLI_NO_CPS=1 ;;
@@ -292,6 +294,8 @@ show_help() {
   --isolation=on|off    Изоляция клиентов VPN друг от друга (по умолчанию on).
                         off: подсеть туннеля добавляется в AllowedIPs клиентов
   --endpoint=АДРЕС      Внешний endpoint сервера: FQDN, IPv4 или [IPv6] (для NAT)
+  --server-name=ИМЯ     Имя сервера в приложении Amnezia при импорте vpn://
+                        (по умолчанию 'AWG Server'; до 64 символов, без кавычек)
   -y, --yes             Автоматическое подтверждение (перезагрузки, UFW и т.д.)
   -f, --force           Принудительная переустановка поверх уже работающего AmneziaWG
                         (по умолчанию запуск на сконфигурированном сервере прерывается;
@@ -652,7 +656,7 @@ safe_load_config() {
                 DISABLE_IPV6|ALLOWED_IPS_MODE|ALLOWED_IPS|AWG_ENDPOINT|AWG_MTU|\
                 AWG_Jc|AWG_Jmin|AWG_Jmax|AWG_S1|AWG_S2|AWG_S3|AWG_S4|\
                 AWG_H1|AWG_H2|AWG_H3|AWG_H4|AWG_I1|AWG_I2|AWG_I3|AWG_I4|AWG_I5|AWG_PRESET|NO_TWEAKS|NO_CPS|\
-                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6|PREV_AWG_PORT|CLIENT_ISOLATION|CLIENT_ISOLATION_NET)
+                AWG_APPLY_MODE|ALLOW_IPV6_TUNNEL|IPV6_SUBNET|SERVER_HAS_NATIVE_IPV6|PREV_AWG_PORT|CLIENT_ISOLATION|CLIENT_ISOLATION_NET|AWG_SERVER_NAME)
                     export "$key=$value"
                     ;;
             esac
@@ -846,6 +850,48 @@ _apply_isolation_to_allowed_ips() {
         CLIENT_ISOLATION_NET=""
     fi
     export CLIENT_ISOLATION_NET
+}
+
+# Валидация имени сервера для vpn:// URI (D#180): поле description показывается
+# в приложении Amnezia после импорта. Ограничения продиктованы хранением в
+# awgsetup_cfg.init (обёртка '...') и вложением в JSON: без кавычек и бэкслеша,
+# без переводов строк и табов, длина 1-64.
+validate_server_name() {
+    local n="$1"
+    [[ -n "$n" ]] || return 1
+    (( ${#n} <= 64 )) || return 1
+    [[ "$n" == *"'"* || "$n" == *'"'* || "$n" == *'\'* ]] && return 1
+    [[ "$n" == *$'\n'* || "$n" == *$'\t'* || "$n" == *$'\r'* ]] && return 1
+    return 0
+}
+
+# Имя сервера в приложении Amnezia (D#180). Приоритет: CLI-флаг > сохранённый
+# конфиг > интерактивный вопрос (первый запуск без --yes) > 'AWG Server'.
+# Значение из конфига перепроверяется: файл могли править руками, а имя
+# уходит в JSON vpn:// URI.
+configure_server_name() {
+    if [[ -n "$CLI_SERVER_NAME" ]]; then
+        validate_server_name "$CLI_SERVER_NAME" \
+            || die "Некорректное --server-name: до 64 символов, без кавычек, бэкслеша и переводов строк."
+        AWG_SERVER_NAME="$CLI_SERVER_NAME"
+        log "Имя сервера из CLI: ${AWG_SERVER_NAME}"
+    elif [[ -n "${AWG_SERVER_NAME:-}" ]]; then
+        if ! validate_server_name "$AWG_SERVER_NAME"; then
+            log_warn "AWG_SERVER_NAME из $CONFIG_FILE не валидно, использую 'AWG Server'."
+            AWG_SERVER_NAME="AWG Server"
+        fi
+    elif [[ "${config_exists:-0}" -eq 1 || "$AUTO_YES" -eq 1 ]]; then
+        AWG_SERVER_NAME="AWG Server"
+    else
+        local input_name
+        while true; do
+            read -rp "Имя сервера в приложении Amnezia [AWG Server]: " input_name < /dev/tty
+            if [[ -z "$input_name" ]]; then AWG_SERVER_NAME="AWG Server"; break; fi
+            if validate_server_name "$input_name"; then AWG_SERVER_NAME="$input_name"; break; fi
+            log_warn "До 64 символов, без кавычек и бэкслеша. Повторите ввод."
+        done
+    fi
+    export AWG_SERVER_NAME
 }
 
 # Guard смены подсети: [Peer]-блоки переносятся при переустановке как есть
@@ -2167,6 +2213,9 @@ initialize_setup() {
     # дотянется до удаления маршрутов из AllowedIPs (ревью PR #179).
     CLIENT_ISOLATION_NET=""
 
+    # Жёсткий сброс до загрузки конфига: значение не должно приезжать из env.
+    AWG_SERVER_NAME=""
+
     # Загрузка конфига
     if [[ -f "$CONFIG_FILE" ]]; then
         log "Найден файл конфигурации $CONFIG_FILE. Загрузка настроек..."
@@ -2219,6 +2268,11 @@ initialize_setup() {
     # Legacy-конфиг без ключа = 1 (изолированно): иначе переход legacy -> --isolation=off не даёт предупреждения о regen.
     _cfg_client_isolation=""
     if [[ "$config_exists" -eq 1 ]]; then _cfg_client_isolation="${CLIENT_ISOLATION:-1}"; fi
+
+    # Прежнее имя сервера - для предупреждения о смене (D#180).
+    # Legacy-конфиг без ключа = 'AWG Server' (прежний хардкод).
+    _cfg_server_name=""
+    if [[ "$config_exists" -eq 1 ]]; then _cfg_server_name="${AWG_SERVER_NAME:-AWG Server}"; fi
 
     # Переопределение из CLI
     AWG_PORT=${CLI_PORT:-$AWG_PORT}
@@ -2323,6 +2377,9 @@ initialize_setup() {
         die "Некорректный ALLOWED_IPS: '$ALLOWED_IPS'. Ожидается список x.x.x.x/y[,x.x.x.x/y]."
     fi
 
+    # Имя сервера для vpn:// URI (D#180): выбор источника + валидация.
+    configure_server_name
+
     # Проверка порта (пропускаем если AWG-сервис уже слушает этот порт)
     if ! systemctl is-active --quiet awg-quick@awg0 2>/dev/null; then
         check_port_availability "$AWG_PORT" || die "Порт $AWG_PORT/udp занят."
@@ -2388,6 +2445,7 @@ export ALLOWED_IPS='${ALLOWED_IPS}'
 export CLIENT_ISOLATION=${CLIENT_ISOLATION:-1}
 export CLIENT_ISOLATION_NET='${CLIENT_ISOLATION_NET:-}'
 export AWG_ENDPOINT='${AWG_ENDPOINT}'
+export AWG_SERVER_NAME='${AWG_SERVER_NAME:-AWG Server}'
 export AWG_MTU=${AWG_MTU:-1280}
 # AWG 2.0 Parameters
 export AWG_Jc=${AWG_Jc}
@@ -2434,6 +2492,8 @@ EOF
     log "Откл. IPv6: $DISABLE_IPV6"
     log "Режим AllowedIPs: $ALLOWED_IPS_MODE"
     log "Изоляция клиентов: $( [[ "${CLIENT_ISOLATION:-1}" -eq 1 ]] && echo включена || echo отключена )"
+
+    log "Имя сервера: ${AWG_SERVER_NAME}"
     # Смена режима маршрутизации - операция над клиентскими конфигами: новые
     # клиенты получат новый список, но у существующих regen сознательно
     # сохраняет AllowedIPs (индивидуальные настройки modify). Подсказываем
@@ -2456,6 +2516,12 @@ EOF
     if [[ "$config_exists" -eq 1 && -n "$PREV_AWG_PORT" ]]; then
         log_warn "Порт изменён (${PREV_AWG_PORT} -> ${AWG_PORT}). Существующие клиентские конфиги сохраняют старый порт в Endpoint и потеряют связь."
         log_warn "Перевыпустить всех клиентов: sudo bash $MANAGE_SCRIPT_PATH regen"
+    fi
+    # Смена имени сервера (D#180): влияет только на vpn:// URI, существующие
+    # .vpnuri сохраняют старое имя до перевыпуска.
+    if [[ "$config_exists" -eq 1 && "$_cfg_server_name" != "$AWG_SERVER_NAME" ]]; then
+        log_warn "Имя сервера изменено ('${_cfg_server_name}' -> '${AWG_SERVER_NAME}'). Существующие vpn:// ссылки сохраняют старое имя."
+        log_warn "Перевыпустить с новым именем: sudo bash $MANAGE_SCRIPT_PATH regen"
     fi
 
     # Загрузка состояния
