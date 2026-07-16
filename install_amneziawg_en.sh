@@ -45,6 +45,7 @@ CLI_ROUTING_MODE="default"; CLI_CUSTOM_ROUTES=""; CLI_ENDPOINT=""; CLI_NO_TWEAKS
 CLI_ALLOW_IPV6_TUNNEL=0
 CLI_ISOLATION="default"
 CLI_SERVER_NAME=""
+CLI_MOBILE=0
 
 # --- Auto-cleanup of temporary files ---
 _install_temp_files=()
@@ -90,6 +91,7 @@ while [[ $# -gt 0 ]]; do
         --isolation=*)   CLI_ISOLATION="${1#*=}" ;;
         --endpoint=*)    CLI_ENDPOINT="${1#*=}" ;;
         --server-name=*) CLI_SERVER_NAME="${1#*=}" ;;
+        --mobile)        CLI_MOBILE=1 ;;
         --yes|-y)        AUTO_YES=1 ;;
         --no-tweaks)     NO_TWEAKS=1; CLI_NO_TWEAKS=1 ;;
         --no-cps)        NO_CPS=1; CLI_NO_CPS=1 ;;
@@ -299,6 +301,9 @@ Options:
   --endpoint=ADDR       External server endpoint: FQDN, IPv4 or [IPv6] (NAT)
   --server-name=NAME    Server name shown in the Amnezia app on vpn:// import
                         (default 'AWG Server'; up to 64 chars, no quotes)
+  --mobile              Mobile setup in one flag: --preset=mobile + port 443/udp
+                        (mobile carriers often kill non-standard UDP ports).
+                        An explicit --port=N wins over port 443
   -y, --yes             Auto-confirm (reboots, UFW, etc.)
   -f, --force           Force reinstall on top of an already-running AmneziaWG
                         (by default a run on a configured server aborts;
@@ -386,6 +391,23 @@ request_reboot() {
         log "Reboot cancelled. Reboot manually and run the script again."
         exit 1
     fi
+}
+
+# Early container detection (LXC/OpenVZ/Docker/WSL) - 4pda case: on a
+# container VDS the install used to reach step 3 and die with a raw
+# 'modprobe: FATAL: Module amneziawg not found' with no explanation. AmneziaWG
+# installs a kernel module via DKMS, and containers share the host kernel and
+# cannot load their own modules - it is more honest to stop right away.
+# systemd-detect-virt exists on all supported Ubuntu/Debian; if it is somehow
+# missing, the check is skipped (soft degradation, the install is not blocked).
+check_container() {
+    command -v systemd-detect-virt &>/dev/null || return 0
+    local virt
+    virt=$(systemd-detect-virt --container 2>/dev/null) || true
+    [[ -z "$virt" || "$virt" == "none" ]] && return 0
+    log_error "Container detected: ${virt}."
+    log_error "AmneziaWG requires loading a kernel module (DKMS), and containers (LXC/OpenVZ/Docker/WSL) share the host kernel and cannot load their own modules."
+    die "Use a full VPS (KVM/QEMU) or bare-metal. The container option is userspace amneziawg-go: ADVANCED.en.md, section 'LXC / Docker via amneziawg-go'."
 }
 
 check_os_version() {
@@ -872,6 +894,23 @@ validate_server_name() {
     [[ "$n" == *"'"* || "$n" == *'"'* || "$n" == *'\'* ]] && return 1
     [[ "$n" == *$'\n'* || "$n" == *$'\t'* || "$n" == *$'\r'* ]] && return 1
     return 0
+}
+
+# --mobile (D#38, field test 26 jun): mobile-setup shorthand =
+# --preset=mobile + port 443/udp. The main mobile problem is the port: on MTS
+# the default 39743/udp is dead while 443/udp (looks like QUIC/HTTP3) works.
+# Expanded into CLI_PRESET/CLI_PORT BEFORE their consumers: an explicit
+# user --port wins, a contradicting --preset is an error.
+resolve_mobile_flag() {
+    [[ "${CLI_MOBILE:-0}" -eq 1 ]] || return 0
+    if [[ -n "${CLI_PRESET:-}" && "$CLI_PRESET" != "mobile" ]]; then
+        die "--mobile is incompatible with --preset=${CLI_PRESET}: --mobile already implies preset mobile."
+    fi
+    CLI_PRESET="mobile"
+    if [[ -z "$CLI_PORT" ]]; then
+        CLI_PORT=443
+        log "--mobile: port 443/udp (mobile carriers often kill non-standard UDP ports)."
+    fi
 }
 
 # Server name in the Amnezia app (D#180). Priority: CLI flag > saved config >
@@ -2205,6 +2244,7 @@ initialize_setup() {
     log "Log file: $LOG_FILE"
 
     check_os_version
+    check_container
     check_kernel_version
     check_free_space
 
@@ -2288,6 +2328,9 @@ initialize_setup() {
     # A legacy config without the key = 'AWG Server' (the old hardcode).
     _cfg_server_name=""
     if [[ "$config_exists" -eq 1 ]]; then _cfg_server_name="${AWG_SERVER_NAME:-AWG Server}"; fi
+
+    # --mobile expands into CLI_PRESET/CLI_PORT before their consumers (g0vd).
+    resolve_mobile_flag
 
     # CLI override
     AWG_PORT=${CLI_PORT:-$AWG_PORT}

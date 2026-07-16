@@ -45,6 +45,7 @@ CLI_ROUTING_MODE="default"; CLI_CUSTOM_ROUTES=""; CLI_ENDPOINT=""; CLI_NO_TWEAKS
 CLI_ALLOW_IPV6_TUNNEL=0
 CLI_ISOLATION="default"
 CLI_SERVER_NAME=""
+CLI_MOBILE=0
 
 # --- Автоочистка временных файлов ---
 _install_temp_files=()
@@ -90,6 +91,7 @@ while [[ $# -gt 0 ]]; do
         --isolation=*)   CLI_ISOLATION="${1#*=}" ;;
         --endpoint=*)    CLI_ENDPOINT="${1#*=}" ;;
         --server-name=*) CLI_SERVER_NAME="${1#*=}" ;;
+        --mobile)        CLI_MOBILE=1 ;;
         --yes|-y)        AUTO_YES=1 ;;
         --no-tweaks)     NO_TWEAKS=1; CLI_NO_TWEAKS=1 ;;
         --no-cps)        NO_CPS=1; CLI_NO_CPS=1 ;;
@@ -296,6 +298,9 @@ show_help() {
   --endpoint=АДРЕС      Внешний endpoint сервера: FQDN, IPv4 или [IPv6] (для NAT)
   --server-name=ИМЯ     Имя сервера в приложении Amnezia при импорте vpn://
                         (по умолчанию 'AWG Server'; до 64 символов, без кавычек)
+  --mobile              Мобильный сетап одним флагом: --preset=mobile + порт 443/udp
+                        (мобильные операторы часто глушат нестандартные UDP-порты).
+                        Явный --port=N выигрывает над портом 443
   -y, --yes             Автоматическое подтверждение (перезагрузки, UFW и т.д.)
   -f, --force           Принудительная переустановка поверх уже работающего AmneziaWG
                         (по умолчанию запуск на сконфигурированном сервере прерывается;
@@ -381,6 +386,23 @@ request_reboot() {
         log "Перезагрузка отменена. Перезагрузитесь вручную и запустите скрипт снова."
         exit 1
     fi
+}
+
+# Ранний детект контейнера (LXC/OpenVZ/Docker/WSL) - кейс с 4pda: на
+# контейнерном VDS установка доходила до шага 3 и падала сырым 'modprobe:
+# FATAL: Module amneziawg not found' без объяснения причины. AmneziaWG ставит
+# модуль ядра через DKMS, а контейнеры разделяют ядро с хостом и не дают
+# загружать свои модули - честнее остановиться сразу и объяснить.
+# systemd-detect-virt есть на всех поддерживаемых Ubuntu/Debian; если его
+# вдруг нет - проверку пропускаем (мягкая деградация, установку не блокируем).
+check_container() {
+    command -v systemd-detect-virt &>/dev/null || return 0
+    local virt
+    virt=$(systemd-detect-virt --container 2>/dev/null) || true
+    [[ -z "$virt" || "$virt" == "none" ]] && return 0
+    log_error "Обнаружен контейнер: ${virt}."
+    log_error "AmneziaWG требует загрузки модуля ядра (DKMS), а контейнеры (LXC/OpenVZ/Docker/WSL) разделяют ядро с хостом и не позволяют загружать свои модули."
+    die "Возьмите полноценный VPS (KVM/QEMU) или bare-metal. Вариант для контейнеров - userspace amneziawg-go: ADVANCED.md, раздел 'LXC / Docker через amneziawg-go'."
 }
 
 check_os_version() {
@@ -863,6 +885,23 @@ validate_server_name() {
     [[ "$n" == *"'"* || "$n" == *'"'* || "$n" == *'\'* ]] && return 1
     [[ "$n" == *$'\n'* || "$n" == *$'\t'* || "$n" == *$'\r'* ]] && return 1
     return 0
+}
+
+# --mobile (D#38, полевой тест 26 jun): shorthand мобильного сетапа =
+# --preset=mobile + порт 443/udp. Главная мобильная проблема - порт: на МТС
+# дефолтный 39743/udp глушится, 443/udp (похож на QUIC/HTTP3) работает.
+# Разворачивается в CLI_PRESET/CLI_PORT ДО их потребителей: явный --port
+# пользователя выигрывает, противоречащий --preset - ошибка.
+resolve_mobile_flag() {
+    [[ "${CLI_MOBILE:-0}" -eq 1 ]] || return 0
+    if [[ -n "${CLI_PRESET:-}" && "$CLI_PRESET" != "mobile" ]]; then
+        die "--mobile несовместим с --preset=${CLI_PRESET}: --mobile уже включает preset mobile."
+    fi
+    CLI_PRESET="mobile"
+    if [[ -z "$CLI_PORT" ]]; then
+        CLI_PORT=443
+        log "--mobile: порт 443/udp (мобильные операторы часто глушат нестандартные UDP-порты)."
+    fi
 }
 
 # Имя сервера в приложении Amnezia (D#180). Приоритет: CLI-флаг > сохранённый
@@ -2193,6 +2232,7 @@ initialize_setup() {
     log "Лог файл: $LOG_FILE"
 
     check_os_version
+    check_container
     check_kernel_version
     check_free_space
 
@@ -2273,6 +2313,9 @@ initialize_setup() {
     # Legacy-конфиг без ключа = 'AWG Server' (прежний хардкод).
     _cfg_server_name=""
     if [[ "$config_exists" -eq 1 ]]; then _cfg_server_name="${AWG_SERVER_NAME:-AWG Server}"; fi
+
+    # --mobile разворачивается в CLI_PRESET/CLI_PORT до их потребителей (g0vd).
+    resolve_mobile_flag
 
     # Переопределение из CLI
     AWG_PORT=${CLI_PORT:-$AWG_PORT}

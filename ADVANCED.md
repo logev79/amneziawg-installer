@@ -466,6 +466,7 @@ PersistentKeepalive = 33
   --isolation=on|off    Изоляция клиентов друг от друга (умолч. on)
   --endpoint=АДРЕС      Внешний endpoint сервера: FQDN, IPv4 или [IPv6] (для NAT)
   --server-name=ИМЯ     Имя сервера в приложении Amnezia при импорте vpn:// (умолч. 'AWG Server')
+  --mobile              Мобильный сетап одним флагом: preset mobile + порт 443/udp (явный --port выигрывает)
   --preset=ТИП          Набор параметров обфускации: default, mobile
                         mobile: Jc=3, узкий Jmax — для мобильных операторов (Tele2, Yota, Мегафон)
   --jc=N                Задать Jc вручную (1-128, поверх preset)
