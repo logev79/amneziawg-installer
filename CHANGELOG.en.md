@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [5.20.0] - 2026-07-17
+
+**v5.20.0** - explicit client isolation (contributed by @ekuraev), the --mobile flag, a configurable server name in the vpn:// link, and early container detection.
+
 ### Added
 
 - **Explicit client isolation setting** (`--isolation=on|off`, an interactive question on first install). Previously isolation was an implicit side effect of the routing mode: split modes isolated clients only because a client had no route to its neighbors, the `0.0.0.0/0` mode did not isolate at all, and dual-stack clients in split modes remained reachable to each other over the tunnel's IPv6 subnet. Now, with isolation enabled (the default), the server honestly blocks traffic between clients in all modes (`FORWARD awg0→awg0 DROP`; with the IPv6 tunnel enabled - a matching ip6tables rule); with it disabled, the tunnel subnet is added to clients' `AllowedIPs` so devices can see each other. The setting is persisted in `awgsetup_cfg.init` (the `CLIENT_ISOLATION` key) and changed by reinstalling; existing clients need `manage regen --reset-routes` after a change (a hint is printed). Isolation rules are removed by PostDown and cleaned up explicitly on an on-off reinstall. When the tunnel subnet changes, the previous route added by the installer is automatically cleaned up from AllowedIPs (the `CLIENT_ISOLATION_NET` key). Both keys are validated on config load: a non-`0|1` `CLIENT_ISOLATION` and anything but a single canonical CIDR in `CLIENT_ISOLATION_NET` produce a warning and a safe default (#178)
@@ -1554,7 +1558,8 @@ Major security and reliability update after several consecutive code audits. The
 - Diagnostic report (`--diagnostic`).
 - Full uninstall (`--uninstall`).
 
-[Unreleased]: https://github.com/bivlked/amneziawg-installer/compare/v5.19.2...HEAD
+[Unreleased]: https://github.com/bivlked/amneziawg-installer/compare/v5.20.0...HEAD
+[5.20.0]: https://github.com/bivlked/amneziawg-installer/compare/v5.19.2...v5.20.0
 [5.19.2]: https://github.com/bivlked/amneziawg-installer/compare/v5.19.1...v5.19.2
 [5.19.1]: https://github.com/bivlked/amneziawg-installer/compare/v5.19.0...v5.19.1
 [5.19.0]: https://github.com/bivlked/amneziawg-installer/compare/v5.18.4...v5.19.0
