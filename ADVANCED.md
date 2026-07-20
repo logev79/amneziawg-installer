@@ -29,6 +29,7 @@
   - [install_amneziawg.sh](#install-cli-adv)
   - [manage_amneziawg.sh](#manage-cli-adv)
 - [🧑‍💻 Полный список команд управления](#manage-commands-adv)
+- [🤖 JSON-интерфейс для автоматизации (--json)](#json-api-adv)
 - [🛠️ Технические детали](#tech-details-adv)
   - [Архитектура скриптов](#architecture-adv)
   - [DKMS](#dkms-adv)
@@ -454,7 +455,7 @@ PersistentKeepalive = 33
   --diagnostic          Создать диагностический отчет
   -v, --verbose         Расширенный вывод (включая DEBUG)
   --no-color            Отключить цветной вывод
-  --port=НОМЕР          Установить UDP порт (1024-65535)
+  --port=НОМЕР          Установить UDP порт (1-65535; на мобильных сетях с DPI часто выручает 443/udp)
   --ssh-port=ПОРТ       SSH-порт для правила UFW (автодетект; список через запятую)
   --subnet=ПОДСЕТЬ      Подсеть туннеля, CIDR /16-/30 (напр. 10.9.0.0/16)
   --allow-ipv6          Оставить IPv6 включенным
@@ -472,6 +473,7 @@ PersistentKeepalive = 33
   --jc=N                Задать Jc вручную (1-128, поверх preset)
   --jmin=N              Задать Jmin вручную (0-1280, поверх preset)
   --jmax=N              Задать Jmax вручную (0-1280, поверх preset, ≥ Jmin)
+  --no-cps              Отключить CPS (параметр I1) - для десктопных клиентов, которые его не поддерживают (например, macOS)
   -y, --yes             Неинтерактивный режим (все подтверждения auto-yes)
   -f, --force           Переустановка поверх работающего AWG (ENV: AWG_FORCE_REINSTALL=1)
   --no-tweaks           Пропустить необязательный hardening/оптимизацию (UFW,
@@ -488,12 +490,13 @@ PersistentKeepalive = 33
   --no-color            Отключить цветной вывод
   --conf-dir=ПУТЬ       Указать директорию AWG (умолч: /root/awg)
   --server-conf=ПУТЬ    Указать файл конфига сервера
-  --json                JSON-вывод (для команд list / stats; list включает client_ipv6)
+  --json                Машиночитаемый JSON-вывод (v5.21.0: большинство команд, см. раздел «JSON-интерфейс»)
   --expires=ВРЕМЯ       Срок действия при add (1h, 12h, 1d, 7d, 30d, 4w)
   --apply-mode=РЕЖИМ    syncconf (умолч.) или restart (обход kernel panic)
   --psk                 (только для add) сгенерировать PresharedKey для клиента (v5.11.1+)
   --yes                 Не спрашивать подтверждение (ENV: AWG_YES=1)
   --carrier=NAME        (только для diagnose) сравнить параметры с профилем оператора
+  --reset-routes        (только для regen) сбросить AllowedIPs клиентов на глобальный режим маршрутизации
 ```
 
 > **`--psk`** — опциональный дополнительный слой поверх AWG 2.0 обфускации. Генерирует 32-байт симметричный ключ через `awg genpsk`, пишет его в серверный `[Peer]` и в клиентский `[Peer]` (`PresharedKey = ...`). Совместим с любым WireGuard/AmneziaWG клиентом. В batch-режиме `add c1 c2 c3 --psk` каждому клиенту выдаётся свой PSK. Без флага клиенты создаются без `PresharedKey` (default — AWG 2.0 обфускации достаточно для большинства сценариев). Флаг влияет только на новых клиентов, создаваемых этим вызовом `add` — существующие клиенты без PSK остаются без изменений и продолжают подключаться как раньше.
@@ -505,6 +508,7 @@ PersistentKeepalive = 33
 | `AWG_SKIP_APPLY=1` | Пропустить apply_config. Для автоматизации: накопить N операций, применить одной командой |
 | `AWG_APPLY_MODE=restart` | Полный перезапуск вместо syncconf (можно сохранить в `awgsetup_cfg.init`) |
 | `AWG_YES=1` | Не спрашивать подтверждение (эквивалент флага `--yes`) |
+| `AWG_STRICT_CONFIRM=1` | Неинтерактивный запуск деструктивной команды без `--yes`/`AWG_YES=1` отказывает (rc 1) вместо тихого согласия. Для cron/CI/ботов (v5.21.0) |
 
 ---
 
@@ -518,7 +522,7 @@ PersistentKeepalive = 33
 * **`add <имя> [имя2 ...] [--expires=ВРЕМЯ] [--psk]`:** Добавить одного или нескольких клиентов. При batch-создании `awg syncconf` вызывается один раз для всех. С `--expires` — срок действия применяется ко всем. С `--psk` — для каждого генерируется отдельный PresharedKey (v5.11.1+).
 * **`remove <имя> [имя2 ...]`:** Удалить одного или нескольких клиентов. При batch-удалении apply_config вызывается один раз.
 * **`list [-v] [--json]`:** Список клиентов (с деталями при `-v`; `--json` - машиночитаемый формат, включает поле `client_ipv6`).
-* **`regen [имя] [--reset-routes]`:** Перегенерировать файлы `.conf`/`.png` для клиента или всех клиентов. По умолчанию сохраняет индивидуальные `AllowedIPs`/`DNS`/`PersistentKeepalive` клиента (заданные через `modify`). С `--reset-routes` - сбрасывает `AllowedIPs` на текущий глобальный режим маршрутизации из `awgsetup_cfg.init`; используйте после смены режима переустановкой (`--force --route-all` / `--route-amnezia` / `--route-custom=`), чтобы новый режим дошёл до существующих клиентов (Issue #170).
+* **`regen [имя ...] [--reset-routes]`:** Перегенерировать файлы `.conf`/`.png` для указанных клиентов или всех сразу. По умолчанию сохраняет индивидуальные `AllowedIPs`/`DNS`/`PersistentKeepalive` клиента (заданные через `modify`). С `--reset-routes` - сбрасывает `AllowedIPs` на текущий глобальный режим маршрутизации из `awgsetup_cfg.init`; используйте после смены режима переустановкой (`--force --route-all` / `--route-amnezia` / `--route-custom=`), чтобы новый режим дошёл до существующих клиентов (Issue #170).
 * **`modify <имя> <пар> <зн>`:** Изменить параметр клиента в `.conf` файле. Допустимые параметры: DNS, Endpoint, AllowedIPs, PersistentKeepalive. После изменения QR-код и vpn:// URI автоматически перегенерируются.
 * **`backup`:** Создать резервную копию (конфиги + ключи + данные истечения клиентов + cron).
 * **`restore [файл]`:** Восстановить из резервной копии (включая данные истечения и cron-задачу).
@@ -551,6 +555,55 @@ sudo bash /root/awg/manage_amneziawg.sh backup
 # Восстановить из последнего бэкапа (интерактивный выбор)
 sudo bash /root/awg/manage_amneziawg.sh restore
 ```
+
+---
+
+<a id="json-api-adv"></a>
+## 🤖 JSON-интерфейс для автоматизации (--json)
+
+С v5.21.0 флаг `--json` поддерживают не только `list`/`stats`, но и команды управления: `add`, `remove`, `regen`, `modify`, `backup`, `restore`, `check` (алиас `status`), `restart`, `repair-module` (алиас `repair`). Правила контракта:
+
+- **stdout = ровно один JSON-документ** одной строкой, при любом исходе, включая ошибки. Человеческие сообщения уходят в stderr. Читайте stdout целиком - потокового вывода нет, но у batch-команд `results[]` растёт линейно с числом имён.
+- **Exit-код - источник истины.** Поле `ok` дублирует его для ботов, читающих только stdout: `ok=false` при любом провале, в том числе частичном (`add a b`, где `b` уже существует).
+- **Совместимость аддитивная:** новые поля могут добавляться; существующие не переименовываются и не меняют тип. Наборы `status`-значений могут расширяться - неизвестное значение трактуйте как ошибку соответствующей записи. `list`/`stats` заморожены как есть (голые массивы, без конверта).
+- **Поле `error` - человекочитаемый текст** (может быть локализован), не парсите его; машинные решения принимайте по `ok`, `rc` и `status`.
+- **Алиасы канонизируются:** в ответе всегда `"command":"check"` и `"command":"repair-module"`, как бы вы ни набрали команду.
+- `--json` **не подразумевает** `--yes`: деструктивные команды по-прежнему требуют подтверждения.
+- `help`, `show`, `diagnose` флаг не поддерживают - их вывод остаётся человеческим.
+
+Форма успеха (пример `add`):
+
+```json
+{"command":"add","ok":true,"added":1,"failed":0,"applied":true,"results":[{"name":"phone","status":"created","conf":"/root/awg/phone.conf","qr":"/root/awg/phone.png","vpnuri":"/root/awg/phone.vpnuri","expires_at":null}]}
+```
+
+Форма любого аварийного выхода (die, неверная опция, отказ подтверждения, сигнал):
+
+```json
+{"command":"remove","ok":false,"error":"confirmation denied","rc":1}
+```
+
+Статусы записей `results[]`: `add` - `created|exists|invalid_name|error`; `remove` - `removed|not_found|invalid_name|error`; `regen` - `regenerated|not_found|invalid_name|error`.
+
+Замечания по полям:
+
+- `applied` - применён ли конфиг к live-интерфейсу. У `regen` и `modify` поля нет: они не меняют серверное состояние (ключи и IP переиспользуются). При `AWG_SKIP_APPLY=1` всегда `false`.
+- `qr`/`vpnuri` - путь, если файл существовал на момент ответа. QR и URI генерируются вне конфиг-блокировки: при параллельной операции файл может исчезнуть, гарантий свежести нет.
+- `restore` возвращает конверт и на провале (с полями `error` и `rolled_back` - боту важно знать, был ли откат). `restored.clients` - число `[Peer]`-блоков в восстановленном серверном конфиге, не файлов в рабочей папке.
+- `repair-module.rc` - код внутренней проверки модуля (0 - модуль и сервис OK, 1 - модуль не поднялся, 2 - модуль OK, сервис нет), не exit-код процесса.
+- `check.module.loaded=false` сам по себе не ошибка: на userspace-инсталляциях (amneziawg-go, LXC) модуля нет и не будет.
+
+<a id="strict-confirm-adv"></a>
+### Строгое подтверждение для пайплайнов (AWG_STRICT_CONFIRM)
+
+По умолчанию неинтерактивный запуск (cron, CI, бот) деструктивной команды молча продолжается, как будто вы ответили «да» - это историческое поведение, и оно сохранено. `AWG_STRICT_CONFIRM=1` включает строгий режим: без явного `--yes` (или `AWG_YES=1`) команда откажется с rc 1, а с `--json` вернёт `{"ok":false,"error":"AWG_STRICT_CONFIRM=1: non-interactive run requires --yes","rc":1}`.
+
+```bash
+# Рецепт для ботов: строгий режим + явное согласие
+AWG_STRICT_CONFIRM=1 bash manage_amneziawg.sh remove phone --json --yes
+```
+
+Действует на один запуск, в конфиг не сохраняется. Активирует строго значение `1`.
 
 ---
 
@@ -620,7 +673,7 @@ graph TD
 Инсталлятор скачивает `awg_common.sh` и `manage_amneziawg.sh` с URL, привязанных к конкретному тегу версии:
 
 ```
-https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/awg_common.sh
+https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/awg_common.sh
 ```
 
 Это даёт **supply chain pinning**: скачиваемые скрипты соответствуют версии инсталлятора, даже если `main` уже обновлён.
@@ -640,12 +693,12 @@ AWG_BRANCH=my-feature-branch sudo bash ./install_amneziawg.sh
 
 ```bash
 # Русская версия:
-wget -O /root/awg/manage_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/manage_amneziawg.sh
-wget -O /root/awg/awg_common.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/awg_common.sh
+wget -O /root/awg/manage_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/manage_amneziawg.sh
+wget -O /root/awg/awg_common.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/awg_common.sh
 
 # Английская версия:
-wget -O /root/awg/manage_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/manage_amneziawg_en.sh
-wget -O /root/awg/awg_common.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/awg_common_en.sh
+wget -O /root/awg/manage_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/manage_amneziawg_en.sh
+wget -O /root/awg/awg_common.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/awg_common_en.sh
 
 # Установить права
 chmod 700 /root/awg/manage_amneziawg.sh /root/awg/awg_common.sh

@@ -3,8 +3,8 @@
 # ==============================================================================
 # Shared function library for AmneziaWG 2.0
 # Author: @bivlked
-# Version: 5.20.1
-# Date: 2026-07-18
+# Version: 5.21.0
+# Date: 2026-07-20
 # Repository: https://github.com/bivlked/amneziawg-installer
 # ==============================================================================
 #
@@ -24,7 +24,7 @@ KEYS_DIR="${KEYS_DIR:-$AWG_DIR/keys}"
 # drifted apart (one file updated, the other not) - otherwise the mismatch shows
 # up as a "command not found" somewhere random. Bumped with the other versions.
 # shellcheck disable=SC2034  # used by the manage script after sourcing
-AWG_COMMON_VERSION="5.20.1"
+AWG_COMMON_VERSION="5.21.0"
 
 # --- Auto-cleanup of temporary files ---
 # NOTE: trap is NOT set here to avoid overwriting the caller's trap handler.
@@ -689,7 +689,7 @@ ensure_amneziawg_kernel_module() {
 
     # Step 4: rebuild module dependency cache for the specific kernel.
     if command -v depmod >/dev/null 2>&1; then
-        depmod -a "$kernel_ver" 2>/dev/null || \
+        depmod -a "$kernel_ver" >/dev/null 2>&1 || \
             log_warn "depmod -a $kernel_ver reported an error; modprobe below will give the final diagnosis."
     fi
 

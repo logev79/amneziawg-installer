@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/Architecture-x86__64_|_ARM64_|_ARMv7-green" alt="x86_64 | ARM64 | ARMv7">
   <img src="https://img.shields.io/badge/AmneziaWG-2.0-blueviolet" alt="AWG 2.0">
   <a href="https://github.com/bivlked/amneziawg-installer/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
-  <a href="https://github.com/bivlked/amneziawg-installer/releases"><img src="https://img.shields.io/badge/Installer_Version-5.20.1-blue" alt="Version"></a>
+  <a href="https://github.com/bivlked/amneziawg-installer/releases"><img src="https://img.shields.io/badge/Installer_Version-5.21.0-blue" alt="Version"></a>
   <a href="https://github.com/bivlked/amneziawg-installer/actions/workflows/test.yml"><img src="https://github.com/bivlked/amneziawg-installer/actions/workflows/test.yml/badge.svg" alt="Tests"></a>
   <a href="https://github.com/bivlked/amneziawg-installer/stargazers"><img src="https://img.shields.io/github/stars/bivlked/amneziawg-installer?style=flat" alt="Stars"></a>
   <img src="https://img.shields.io/github/last-commit/bivlked/amneziawg-installer" alt="Last commit">
@@ -33,7 +33,7 @@
 ## 🚀 Quick Start
 
 ```bash
-wget -O install_amneziawg_en.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/install_amneziawg_en.sh
+wget -O install_amneziawg_en.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/install_amneziawg_en.sh
 chmod +x install_amneziawg_en.sh
 sudo bash ./install_amneziawg_en.sh
 ```
@@ -187,7 +187,7 @@ The official Amnezia app is the official graphical client: you install the app, 
 * **Fine control over the obfuscation.** A mobile-network preset (`--preset=mobile`), direct access to the AmneziaWG 2.0 parameters, and field data on carriers and DPI - you can tune it for a specific network or carrier.
 * **Headless and scriptable.** One SSH command, every parameter as a flag, CLI client management, time-limited guests (`--expires`), QR or `vpn://` import, and prebuilt modules for ARM.
 
-The protocol and the DPI resistance are the same - it is the same AmneziaWG 2.0 underneath. The code is open under the MIT license, it is readable bash you can review before running, and it has 800+ automated tests. It installs the same upstream AmneziaWG - this is automation and server tuning, not a fork of the protocol.
+The protocol and the DPI resistance are the same - it is the same AmneziaWG 2.0 underneath. The code is open under the MIT license, it is readable bash you can review before running, and it has 1100+ automated tests. It installs the same upstream AmneziaWG - this is automation and server tuning, not a fork of the protocol.
 
 Detailed comparison: [amneziawg-installer vs the official Amnezia app](https://bivlked.github.io/amneziawg-installer/compare/).
 
@@ -225,7 +225,7 @@ Detailed comparison: [amneziawg-installer vs the official Amnezia app](https://b
 <a id="carriers"></a>
 ## 📡 Tested mobile carriers (Russia)
 
-If your VPN is unstable on mobile data, run the installer with `--preset=mobile`. Below - configurations reported by users in issues and discussions (not a guarantee: blocking and carrier parameters change over time):
+The installer tunes AmneziaWG 2.0 obfuscation for mobile networks with DPI: `--mobile` switches on the mobile preset and port 443/udp in a single flag. If your VPN is unstable on mobile data, reinstall with `--mobile`. The configurations below come from user reports in issues and discussions (no guarantee: blocking and carrier parameters change over time):
 
 - **Yota** - Moscow, `--preset=mobile`
 - **Tele2** - Moscow (`--preset=mobile`); Krasnoyarsk (`--preset=mobile`; the May 2026 wave needed `I1=<r 48>`)
@@ -305,15 +305,15 @@ This configuration is more than enough for comfortable AmneziaWG operation with 
 <a id="installation"></a>
 ## 🔧 Installation (Recommended Method)
 
-This installation method handles interactive prompts and colored output correctly in your terminal.
+Installing AmneziaWG on Ubuntu or Debian comes down to three commands: download the script, run it with `sudo`, and answer a few questions. This method handles interactive prompts and colored output correctly in your terminal.
 
 1.  **Connect** to a **clean** server (Ubuntu 24.04 / Ubuntu 25.10 / Ubuntu 26.04 / Debian 12 / Debian 13) via SSH.
     > **Tip:** After creating the server, wait 5-10 minutes for all background initialization processes to complete before starting the installation.
 
 2.  **Download the script:**
     ```bash
-    wget -O install_amneziawg_en.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/install_amneziawg_en.sh
-    # or: curl -fLo install_amneziawg_en.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/install_amneziawg_en.sh
+    wget -O install_amneziawg_en.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/install_amneziawg_en.sh
+    # or: curl -fLo install_amneziawg_en.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/install_amneziawg_en.sh
     ```
     > Minimal Debian may not ship curl (wget is usually present) - use `wget`. The installer itself adds curl in step 1.
 3.  **Make it executable:**
@@ -328,14 +328,14 @@ This installation method handles interactive prompts and colored output correctl
 
     > **Russian version:** For Russian output, use `install_amneziawg.sh`:
     > ```bash
-    > wget -O install_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/install_amneziawg.sh
+    > wget -O install_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/install_amneziawg.sh
     > sudo bash ./install_amneziawg.sh
     > ```
     > The Russian version is functionally identical; only user-facing messages and logs are in Russian.
     > After reboots, resume with the same file: `sudo bash ./install_amneziawg.sh`
 
 5.  **Initial setup:** The script will interactively ask for:
-    * **UDP port:** Port for client connections (1024-65535). Default: `39743`.
+    * **UDP port:** Port for client connections (1-65535). Default: `39743`.
     * **Tunnel subnet:** Internal VPN network. Default: `10.9.9.1/24`.
     * **Disable IPv6:** Recommended (`Y`) to prevent traffic leaks.
     * **Routing mode:** Determines which traffic goes through the VPN. Default `2` (Amnezia List + DNS) - recommended for best compatibility and bypassing restrictions.
@@ -436,7 +436,7 @@ Full list: `... help` or [ADVANCED.en.md#manage-commands-adv](ADVANCED.en.md#man
 
 | Command   | Arguments              | Description                    | Restart? |
 | :-------- | :--------------------- | :----------------------------- | :------: |
-| `regen`   | `[client_name]`        | Regenerate files (all/one)     |    No     |
+| `regen`   | `[name ...] [--reset-routes]` | Regenerate files (all/listed) |    No     |
 | `modify`  | `<name> <param> <val>` | Modify a client parameter      |    No     |
 | `backup`  |                        | Create a backup                |    No     |
 | `restore` | `[file]`               | Restore from backup            |    No     |
@@ -447,15 +447,17 @@ Full list: `... help` or [ADVANCED.en.md#manage-commands-adv](ADVANCED.en.md#man
 
 > **💡 Note:** `add` and `remove` commands auto-apply changes via `awg syncconf` - no service restart needed.
 
+> **🤖 For scripts and bots:** since v5.21.0 nearly every management command (from `add` to `repair-module`) understands `--json` and replies with a single JSON object, even when something goes wrong - so your script or bot can parse the output without guesswork. `list --json` and `stats --json` still return plain arrays, as before. The format and the strict confirmation mode `AWG_STRICT_CONFIRM=1` are covered in [ADVANCED.en.md → JSON interface](ADVANCED.en.md#json-api-adv), and there is already a Telegram bot built on this interface - [awgram](#ecosystem).
+
 ### 📌 Quick Reference
 
 ```bash
 # Installation (English)
-wget -O install_amneziawg_en.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/install_amneziawg_en.sh
+wget -O install_amneziawg_en.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/install_amneziawg_en.sh
 sudo bash ./install_amneziawg_en.sh       # Run (+ 2 reboots)
 
 # Installation (Russian)
-wget -O install_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/install_amneziawg.sh
+wget -O install_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/install_amneziawg.sh
 sudo bash ./install_amneziawg.sh          # Run (+ 2 reboots)
 
 # Client management
@@ -541,16 +543,18 @@ For a two-server cascade with a split exit for Russian and foreign traffic (spli
   <b>A:</b> Download the updated scripts and replace them on the server:
   <pre>
   # English version:
-  wget -O /root/awg/manage_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/manage_amneziawg_en.sh
-  wget -O /root/awg/awg_common.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/awg_common_en.sh
+  wget -O /root/awg/manage_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/manage_amneziawg_en.sh
+  wget -O /root/awg/awg_common.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/awg_common_en.sh
   chmod 700 /root/awg/manage_amneziawg.sh /root/awg/awg_common.sh
 
   # Russian version:
-  wget -O /root/awg/manage_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/manage_amneziawg.sh
-  wget -O /root/awg/awg_common.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.20.1/awg_common.sh
+  wget -O /root/awg/manage_amneziawg.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/manage_amneziawg.sh
+  wget -O /root/awg/awg_common.sh https://raw.githubusercontent.com/bivlked/amneziawg-installer/v5.21.0/awg_common.sh
   chmod 700 /root/awg/manage_amneziawg.sh /root/awg/awg_common.sh
   </pre>
   Server reinstallation is not required.
+  <br><br>
+  Since v5.21.0 the script pair is protected against drift: if you update manage but forget awg_common (or the other way around) and the versions diverge, the script stops and shows the exact commands to fetch the other half, instead of throwing strange errors halfway through.
 </details>
 
 <details>
@@ -590,12 +594,17 @@ For a two-server cascade with a split exit for Russian and foreign traffic (spli
 
 <details>
   <summary><strong>Q: Why port 39743?</strong></summary>
-  <b>A:</b> It's a random port from the upper range, chosen as the default. You can change it during installation: <code>--port=XXXXX</code> (any port 1024-65535).
+  <b>A:</b> It's a random port from the upper range, chosen as the default. You can change it during installation: <code>--port=N</code> (any port 1-65535). On mobile networks where the carrier drops unfamiliar ports, <code>443/udp</code> often helps - the <code>--mobile</code> flag sets it together with the obfuscation preset.
 </details>
 
 <details>
   <summary><strong>Q: Is Perl required on the server?</strong></summary>
   <b>A:</b> Perl is used optionally for generating <code>vpn://</code> URIs (<code>.vpnuri</code> files). If Perl is absent, <code>.conf</code> files are still created normally - you can use them via file import or QR code. Perl is installed by default on Ubuntu and Debian.
+</details>
+
+<details>
+  <summary><strong>Q: Can I manage the server from my own scripts or a Telegram bot?</strong></summary>
+  <b>A:</b> Yes. Since v5.21.0 the management commands take the <code>--json</code> flag and reply with a single JSON object even on failure, so the output is safe to parse from any script (<code>list</code>/<code>stats</code> have returned JSON arrays for a long time). I promise not to break the format: new fields may appear, existing ones keep their names and types. For unattended runs there is <code>--yes</code>, and the strict mode <code>AWG_STRICT_CONFIRM=1</code> makes commands like <code>remove</code> refuse when <code>--yes</code> is missing, instead of quietly going ahead. The format breakdown lives in <a href="ADVANCED.en.md#json-api-adv">ADVANCED.en.md → JSON interface</a>. For a real-world example, the <a href="https://github.com/ekuraev/awgram">awgram</a> Telegram bot runs on exactly this interface.
 </details>
 
 <details>
